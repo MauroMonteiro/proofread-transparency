@@ -1,0 +1,56 @@
+{
+  "generatedAt": "2026-07-18T16:55:55.849Z",
+  "base": "https://proofreadbtc.com",
+  "books": [
+    {
+      "id": "incorruptible-standard",
+      "version": 1,
+      "rootHash": "b6a6d08d0fdbf0f26c22ae01b14c9f88712ce75986d630eba12a0e731327767d",
+      "manifestHash": "fcc50f0d009fe9332745ed9ace702420d592b7f26b98e079eb212267b81d07e0",
+      "blockHeight": 944239,
+      "blockHash": "00000000000000000000914f3395c1b52144a42583b8ba7259131b22eb15a596",
+      "blockTime": 1775681186,
+      "capturedAt": null
+    },
+    {
+      "id": "common-sense",
+      "version": 1,
+      "rootHash": "b00219e27f5c11d7692d92e0b906c8f6cca5f9fceeb7ed87a04b6a5fadfed0af",
+      "manifestHash": "39c41b1f4a37175cb247d7c300f68706baca3434c8565fec172d1a1cd0995849",
+      "blockHeight": 952114,
+      "blockHash": "00000000000000000000a9d6aba29c50a0a05c9ac10cc7f8e6a89acf4ec31601",
+      "blockTime": 1780406820,
+      "capturedAt": null
+    },
+    {
+      "id": "the-law",
+      "version": 1,
+      "rootHash": "6daeb07a8cb33ed2160a10a5111c292d35b230f8887270667e2dbe067f0a3c2e",
+      "manifestHash": "c24f4a8fafd3f9550c649c2cb23339048e8eb9b4b8bad20fbb37e53c0e7ed0c6",
+      "blockHeight": 952114,
+      "blockHash": "00000000000000000000a9d6aba29c50a0a05c9ac10cc7f8e6a89acf4ec31601",
+      "blockTime": 1780406820,
+      "capturedAt": null
+    },
+    {
+      "id": "wealth-of-nations",
+      "version": 1,
+      "rootHash": "dceb864f31e717e516065de3f512c8407ecbcf8d203ac7d63e5b8cc538d0b816",
+      "manifestHash": "0914268122b5c1d776742a8fb9286bc4578d55f409c43ffc88a1535bb67ee43f",
+      "blockHeight": 952160,
+      "blockHash": "0000000000000000000152516ce50be2a9803d5877972dcb6ed96dc9605ace13",
+      "blockTime": 1780445533,
+      "capturedAt": null
+    },
+    {
+      "id": "a-nice-morning-drive",
+      "version": 1,
+      "rootHash": "4deb4733b40f0ee7aeb6ced31f8b570bf7b40b1b1d75e2f58de308e6c95039ec",
+      "manifestHash": "45da6caa54d397962a0caa5848606e843dca9c3e6067ce5e1a7073b98db31cf5",
+      "blockHeight": 957320,
+      "blockHash": "00000000000000000001f6d2d958dec3e5abbe6c0fa96ee34f53d1a5062ecd39",
+      "blockTime": 1783611136,
+      "capturedAt": null
+    }
+  ]
+}

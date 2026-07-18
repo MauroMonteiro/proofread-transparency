@@ -1,0 +1,65 @@
+name: verify
+
+# Independent verification of every published book on proofreadbtc.com:
+# recompute each anchored file's SHA-256 and verify its OpenTimestamps proof to
+# a real Bitcoin block, using our own code on infrastructure the site does not
+# run. A red run means a published book's served text or its Bitcoin anchor no
+# longer matches what was published — GitHub emails the repo owner.
+
+on:
+  schedule:
+    - cron: "17 */6 * * *" # every 6 hours, offset off the hour
+  workflow_dispatch: {} # allow manual runs
+  push:
+    branches: [main] # verify on every change to the watchdog itself
+
+permissions:
+  contents: write # to append the public transparency log
+
+concurrency:
+  group: verify
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - run: npm ci
+
+      - name: Verify anchored books
+        id: verify
+        env:
+          WATCHDOG_BASE_URL: ${{ secrets.WATCHDOG_BASE_URL }}
+          # Needed ONLY while the site is gated (pre-launch). Delete this secret
+          # at launch — the public site needs no cookie.
+          WATCHDOG_GATE_COOKIE: ${{ secrets.WATCHDOG_GATE_COOKIE }}
+        run: |
+          set +e
+          node verify-watchdog.mjs | tee run.out
+          echo "code=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
+
+      - name: Append to public transparency log
+        if: always()
+        run: |
+          mkdir -p log
+          grep '^WATCHDOG_REPORT ' run.out | sed 's/^WATCHDOG_REPORT //' \
+            >> "log/$(date -u +%Y-%m).jsonl" || echo "no report line"
+          git config user.name "proofread-watchdog"
+          git config user.email "watchdog@users.noreply.github.com"
+          git add log/
+          git commit -m "verify: $(date -u +%FT%TZ) (exit ${{ steps.verify.outputs.code }})" || echo "no change to log"
+          git push || echo "push skipped"
+
+      - name: Alert on tampering
+        if: always()
+        run: |
+          case "${{ steps.verify.outputs.code }}" in
+            0) echo "::notice::All published books verified against their Bitcoin anchors." ;;
+            1) echo "::error::TAMPERING — a published book's served text or its Bitcoin anchor does not match what was published."; exit 1 ;;
+            2) echo "::warning::Operational error (site/explorer unreachable, or a proof is pending) — no tampering confirmed." ;;
+            *) echo "::error::watchdog exited with unexpected code ${{ steps.verify.outputs.code }}"; exit 1 ;;
+          esac
