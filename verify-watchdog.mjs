@@ -74,9 +74,14 @@ const arg = (name) => {
   return i >= 0 ? process.argv[i + 1] : undefined;
 };
 const hasFlag = (name) => process.argv.includes(name);
-const BASE = (arg("--base") || process.env.WATCHDOG_BASE_URL || "https://proofreadbtc.com").replace(/\/$/, "");
+const BASE = (
+  arg("--base") ||
+  process.env.WATCHDOG_BASE_URL ||
+  "https://proofreadbtc.com"
+).replace(/\/$/, "");
 const GATE = process.env.WATCHDOG_GATE_COOKIE || "";
-const NO_ANCHOR = hasFlag("--no-anchor") || process.env.WATCHDOG_NO_ANCHOR === "1";
+const NO_ANCHOR =
+  hasFlag("--no-anchor") || process.env.WATCHDOG_NO_ANCHOR === "1";
 const EMIT_PINS = hasFlag("--emit-pins");
 const PINS_PATH = arg("--pins") || process.env.WATCHDOG_PINS || "books.json";
 const EXPLORER_TIMEOUT_MS = 15000; // generous, so ordinary explorer latency isn't misread as an error
@@ -98,8 +103,7 @@ const isMetadata = (name) => name === "book.json";
 async function loadOts() {
   if (NO_ANCHOR) return null;
   try {
-    const mod = await import("javascript-opentimestamps");
-    return mod.default ?? mod;
+    return await import("@otskit/client");
   } catch {
     return null;
   }
@@ -109,7 +113,7 @@ async function loadOts() {
 function loadPins() {
   try {
     const raw = JSON.parse(readFileSync(PINS_PATH, "utf-8"));
-    const list = Array.isArray(raw) ? raw : raw.books ?? [];
+    const list = Array.isArray(raw) ? raw : (raw.books ?? []);
     return new Map(list.filter((p) => p && p.id).map((p) => [p.id, p]));
   } catch {
     return new Map();
@@ -117,15 +121,21 @@ function loadPins() {
 }
 
 async function getJson(path) {
-  const res = await fetch(BASE + path, { headers: GATE ? { cookie: GATE } : {}, redirect: "manual" });
-  if (res.status >= 300 && res.status < 400) throw new Error(`redirect (gated?) at ${path}`);
+  const res = await fetch(BASE + path, {
+    headers: GATE ? { cookie: GATE } : {},
+    redirect: "manual",
+  });
+  if (res.status >= 300 && res.status < 400)
+    throw new Error(`redirect (gated?) at ${path}`);
   if (!res.ok) throw new Error(`HTTP ${res.status} at ${path}`);
   return res.json();
 }
 
 async function getBytes(path) {
   const url = /^https?:\/\//.test(path) ? path : BASE + path;
-  const res = await fetch(url, { headers: !/^https?:\/\//.test(path) && GATE ? { cookie: GATE } : {} });
+  const res = await fetch(url, {
+    headers: !/^https?:\/\//.test(path) && GATE ? { cookie: GATE } : {},
+  });
   if (!res.ok) return null;
   return new Uint8Array(await res.arrayBuffer());
 }
@@ -137,10 +147,15 @@ async function getBytes(path) {
  * name→contentUrl map (and a last-resort hash source flagged hashesAnchored:false).
  */
 async function verifyContentBytes(verifyFiles, anchoredManifest) {
-  const urlByName = new Map(verifyFiles.filter((f) => f.contentUrl).map((f) => [f.path, f.contentUrl]));
+  const urlByName = new Map(
+    verifyFiles.filter((f) => f.contentUrl).map((f) => [f.path, f.contentUrl]),
+  );
   const hashesAnchored = !!anchoredManifest;
   const expected = hashesAnchored
-    ? Object.entries(anchoredManifest.files).map(([path, info]) => ({ path, sha256: info.sha256 }))
+    ? Object.entries(anchoredManifest.files).map(([path, info]) => ({
+        path,
+        sha256: info.sha256,
+      }))
     : verifyFiles.map((f) => ({ path: f.path, sha256: f.sha256 }));
 
   let textOk = true;
@@ -166,17 +181,33 @@ async function verifyContentBytes(verifyFiles, anchoredManifest) {
       mismatches.push(f.path);
     }
   }
-  return { textVerified: textOk && !incomplete, textOk, incomplete, metadataDrift, mismatches, hashesAnchored, fileCount: expected.length };
+  return {
+    textVerified: textOk && !incomplete,
+    textOk,
+    incomplete,
+    metadataDrift,
+    mismatches,
+    hashesAnchored,
+    fileCount: expected.length,
+  };
 }
 
 /** Independently fetch a block's hash + header from one explorer, by height. */
 async function explorerBlockByHeight(explorer, height) {
   const ctl = AbortSignal.timeout(EXPLORER_TIMEOUT_MS);
-  const hashRes = await fetch(`${explorer.url}/block-height/${height}`, { signal: ctl });
-  if (!hashRes.ok) throw new Error(`${explorer.name} block-height ${height}: HTTP ${hashRes.status}`);
+  const hashRes = await fetch(`${explorer.url}/block-height/${height}`, {
+    signal: ctl,
+  });
+  if (!hashRes.ok)
+    throw new Error(
+      `${explorer.name} block-height ${height}: HTTP ${hashRes.status}`,
+    );
   const hash = (await hashRes.text()).trim();
-  const blkRes = await fetch(`${explorer.url}/block/${hash}`, { signal: AbortSignal.timeout(EXPLORER_TIMEOUT_MS) });
-  if (!blkRes.ok) throw new Error(`${explorer.name} block ${hash}: HTTP ${blkRes.status}`);
+  const blkRes = await fetch(`${explorer.url}/block/${hash}`, {
+    signal: AbortSignal.timeout(EXPLORER_TIMEOUT_MS),
+  });
+  if (!blkRes.ok)
+    throw new Error(`${explorer.name} block ${hash}: HTTP ${blkRes.status}`);
   const blk = await blkRes.json();
   return { hash, merkleRoot: blk.merkle_root, time: blk.timestamp };
 }
@@ -223,7 +254,7 @@ async function verifyAnchor(ots, book, claimed, manBytes, pin) {
     return result;
   }
 
-  const original = ots.DetachedTimestampFile.fromBytes(new ots.Ops.OpSHA256(), Buffer.from(manBytes));
+  const originalHash = Buffer.from(sha256(manBytes), "hex");
 
   const successes = [];
   let mismatchVotes = 0;
@@ -231,18 +262,43 @@ async function verifyAnchor(ots, book, claimed, manBytes, pin) {
   let opVotes = 0;
   for (const explorer of EXPLORERS) {
     try {
-      const otsFile = ots.DetachedTimestampFile.deserialize(otsBytes); // fresh per explorer — verify() mutates
-      const v = await ots.verify(otsFile, original, { ignoreBitcoinNode: true, esplora: { url: explorer.url, timeout: EXPLORER_TIMEOUT_MS } });
-      if (v && v.bitcoin) {
-        result.explorers[explorer.name] = { height: v.bitcoin.height, time: v.bitcoin.timestamp };
-        successes.push({ name: explorer.name, height: v.bitcoin.height, time: v.bitcoin.timestamp });
-      } else {
-        result.explorers[explorer.name] = { error: "no bitcoin attestation" };
+      const client = new ots.OpenTimestampsClient({
+        esploraUrl: explorer.url,
+        resilience: {
+          totalTimeoutMs: EXPLORER_TIMEOUT_MS,
+          connectTimeoutMs: EXPLORER_TIMEOUT_MS,
+        },
+      });
+      const v = await client.verify(Buffer.from(otsBytes), originalHash);
+      if (v.status === "verified") {
+        result.explorers[explorer.name] = {
+          height: v.blockHeight,
+          time: v.blockTime,
+        };
+        successes.push({
+          name: explorer.name,
+          height: v.blockHeight,
+          time: v.blockTime,
+        });
+      } else if (v.status === "invalid") {
+        result.explorers[explorer.name] = { error: v.reason, kind: "mismatch" };
+        mismatchVotes++;
+      } else if (v.status === "pending") {
+        result.explorers[explorer.name] = { error: v.reason, kind: "pending" };
         pendingVotes++;
+      } else {
+        result.explorers[explorer.name] = {
+          error: v.reason,
+          kind: "operational",
+        };
+        opVotes++;
       }
     } catch (err) {
       const kind = classifyAnchorError(err);
-      result.explorers[explorer.name] = { error: String(err && err.message ? err.message : err), kind };
+      result.explorers[explorer.name] = {
+        error: String(err && err.message ? err.message : err),
+        kind,
+      };
       if (kind === "mismatch") mismatchVotes++;
       else if (kind === "pending") pendingVotes++;
       else opVotes++;
@@ -264,7 +320,10 @@ async function verifyAnchor(ots, book, claimed, manBytes, pin) {
     result.attestedTime = t0;
     // Independent: fetch the block by height and record its hash.
     try {
-      const blk = await explorerBlockByHeight(EXPLORERS[EXPLORERS.length - 1], h0);
+      const blk = await explorerBlockByHeight(
+        EXPLORERS[EXPLORERS.length - 1],
+        h0,
+      );
       result.blockHash = blk.hash;
     } catch {
       // non-critical for verify(), but required to confirm pin.blockHash below
@@ -278,7 +337,11 @@ async function verifyAnchor(ots, book, claimed, manBytes, pin) {
         result.note = "pin-mismatch";
         return result;
       }
-      if (pin.blockHash && result.blockHash && result.blockHash !== pin.blockHash) {
+      if (
+        pin.blockHash &&
+        result.blockHash &&
+        result.blockHash !== pin.blockHash
+      ) {
         // block at pin height has a different hash than pinned → reorg or a
         // lying explorer, not manifest tampering → operational (human).
         result.note = "operational";
@@ -339,7 +402,12 @@ async function verifyBook(ots, id, pin, pinsLoaded) {
       manifestHash = sha256(manBytes);
       try {
         const m = JSON.parse(new TextDecoder().decode(manBytes));
-        if (m && m.files) anchoredManifest = { files: m.files, rootHash: m.rootHash, bytes: manBytes };
+        if (m && m.files)
+          anchoredManifest = {
+            files: m.files,
+            rootHash: m.rootHash,
+            bytes: manBytes,
+          };
       } catch {
         // unparseable → falls back to /verify JSON hashes (flagged) below
       }
@@ -348,7 +416,9 @@ async function verifyBook(ots, id, pin, pinsLoaded) {
 
   // MANIFEST BINDING: the served manifest must be byte-identical to the pinned
   // one. This single check binds every file hash + rootHash to the ground truth.
-  const manifestPinOk = pin ? manifestHash != null && manifestHash === pin.manifestHash : null;
+  const manifestPinOk = pin
+    ? manifestHash != null && manifestHash === pin.manifestHash
+    : null;
 
   const content = await verifyContentBytes(files, anchoredManifest);
 
@@ -356,13 +426,22 @@ async function verifyBook(ots, id, pin, pinsLoaded) {
   // must not be able to skip the check for a book we know is anchored).
   let anchor = { checked: false };
   if (ots && (manifestUrl || pin)) {
-    anchor = await verifyAnchor(ots, data, claimed, anchoredManifest?.bytes, pin);
+    anchor = await verifyAnchor(
+      ots,
+      data,
+      claimed,
+      anchoredManifest?.bytes,
+      pin,
+    );
   }
 
   // Roll up. With a pin, "verified" means: manifest bound to pin, content
   // matches, and anchor resolves to the pinned block.
   const contentTampered = content.textOk === false;
-  const anchorTampered = anchor.note === "mismatch" || anchor.note === "claim-mismatch" || anchor.note === "pin-mismatch";
+  const anchorTampered =
+    anchor.note === "mismatch" ||
+    anchor.note === "claim-mismatch" ||
+    anchor.note === "pin-mismatch";
   const manifestTampered = manifestPinOk === false && manifestHash != null; // served a manifest ≠ pin
   const tampered = contentTampered || anchorTampered || manifestTampered;
 
@@ -370,8 +449,15 @@ async function verifyBook(ots, id, pin, pinsLoaded) {
   if (tampered) {
     verdict = "TAMPERED";
   } else if (pin) {
-    const fullyVerified = manifestPinOk === true && content.textVerified && anchor.verified === true;
-    verdict = fullyVerified ? "OK" : anchor.note === "pending" ? "PENDING" : "INCOMPLETE";
+    const fullyVerified =
+      manifestPinOk === true &&
+      content.textVerified &&
+      anchor.verified === true;
+    verdict = fullyVerified
+      ? "OK"
+      : anchor.note === "pending"
+        ? "PENDING"
+        : "INCOMPLETE";
   } else {
     // Unpinned book (a pins file exists but this book isn't in it) → cannot
     // check against ground truth. Never "OK": needs a human to add a pin.
@@ -414,8 +500,15 @@ async function capturePin(ots, id) {
   } catch {
     /* keep null */
   }
-  const anchor = await verifyAnchor(ots, data, data.bitcoin ?? null, manBytes, null);
-  if (!anchor.verified || anchor.attestedHeight == null || !anchor.blockHash) return null;
+  const anchor = await verifyAnchor(
+    ots,
+    data,
+    data.bitcoin ?? null,
+    manBytes,
+    null,
+  );
+  if (!anchor.verified || anchor.attestedHeight == null || !anchor.blockHash)
+    return null;
   return {
     id,
     version: data.version ?? null,
@@ -430,19 +523,35 @@ async function capturePin(ots, id) {
 
 function line(r) {
   const bits = [];
-  bits.push(`content ${r.content.textOk === false ? "TAMPERED" : r.content.textVerified ? "OK" : "INCOMPLETE"}`);
+  bits.push(
+    `content ${r.content.textOk === false ? "TAMPERED" : r.content.textVerified ? "OK" : "INCOMPLETE"}`,
+  );
   if (r.pinned && r.manifestPinOk === false) bits.push("manifest ≠ PIN");
   if (r.anchor.checked) {
-    if (r.anchor.verified) bits.push(`anchor OK (block ${r.anchor.attestedHeight}${r.anchor.blockHash ? " " + r.anchor.blockHash.slice(0, 12) + "…" : ""})`);
-    else if (r.anchor.note === "pin-mismatch") bits.push(`anchor ≠ PIN (Bitcoin attests ${r.anchor.attestedHeight})`);
-    else if (r.anchor.note === "mismatch") bits.push("anchor MISMATCH (manifest does not commit to a block)");
-    else if (r.anchor.note === "claim-mismatch") bits.push(`anchor LIE (claims ${r.anchor.claimedHeight}, Bitcoin attests ${r.anchor.attestedHeight})`);
-    else if (r.anchor.note === "pending") bits.push("anchor pending (not yet in a block)");
+    if (r.anchor.verified)
+      bits.push(
+        `anchor OK (block ${r.anchor.attestedHeight}${r.anchor.blockHash ? " " + r.anchor.blockHash.slice(0, 12) + "…" : ""})`,
+      );
+    else if (r.anchor.note === "pin-mismatch")
+      bits.push(`anchor ≠ PIN (Bitcoin attests ${r.anchor.attestedHeight})`);
+    else if (r.anchor.note === "mismatch")
+      bits.push("anchor MISMATCH (manifest does not commit to a block)");
+    else if (r.anchor.note === "claim-mismatch")
+      bits.push(
+        `anchor LIE (claims ${r.anchor.claimedHeight}, Bitcoin attests ${r.anchor.attestedHeight})`,
+      );
+    else if (r.anchor.note === "pending")
+      bits.push("anchor pending (not yet in a block)");
     else bits.push("anchor unverified (operational)");
   } else if (!r.pinned && r.verdict === "UNPINNED") {
     bits.push("UNPINNED (needs review)");
   }
-  const tag = r.verdict === "UNPINNED" ? " [UNPINNED — add a pin after review]" : r.content.metadataDrift ? " [metadata drift — expected]" : "";
+  const tag =
+    r.verdict === "UNPINNED"
+      ? " [UNPINNED — add a pin after review]"
+      : r.content.metadataDrift
+        ? " [metadata drift — expected]"
+        : "";
   return `[watchdog] ${r.id} v${r.version ?? "?"}: ${bits.join(", ")}${tag}`;
 }
 
@@ -450,14 +559,18 @@ async function main() {
   const now = new Date().toISOString();
   const ots = await loadOts();
   if (!ots && !NO_ANCHOR) {
-    console.warn("[watchdog] javascript-opentimestamps not installed — CONTENT check only. `npm ci` to enable the Bitcoin anchor check.");
+    console.warn(
+      "[watchdog] @otskit/client not installed — CONTENT check only. `npm ci` to enable the Bitcoin anchor check.",
+    );
   }
 
   let serverIds;
   try {
     const env = await getJson(`/api/v1/books`);
     const list = env.data ?? env;
-    serverIds = (Array.isArray(list) ? list : list.books ?? []).map((b) => b.id ?? b);
+    serverIds = (Array.isArray(list) ? list : (list.books ?? [])).map(
+      (b) => b.id ?? b,
+    );
   } catch (err) {
     console.error(`[watchdog] could not list books: ${err.message}`);
     process.exit(2);
@@ -467,7 +580,9 @@ async function main() {
   // by eye against explorers before committing it as ground truth.
   if (EMIT_PINS) {
     if (!ots) {
-      console.error("[watchdog] --emit-pins requires the OTS library (npm ci first).");
+      console.error(
+        "[watchdog] --emit-pins requires the OTS library (npm ci first).",
+      );
       process.exit(2);
     }
     const pins = [];
@@ -476,25 +591,39 @@ async function main() {
         const p = await capturePin(ots, id);
         if (p) {
           pins.push(p);
-          console.error(`[emit-pins] ${id}: block ${p.blockHeight} ${p.blockHash.slice(0, 12)}… manifest ${p.manifestHash.slice(0, 12)}…`);
+          console.error(
+            `[emit-pins] ${id}: block ${p.blockHeight} ${p.blockHash.slice(0, 12)}… manifest ${p.manifestHash.slice(0, 12)}…`,
+          );
         } else {
-          console.error(`[emit-pins] ${id}: SKIPPED (not verifiable — pending or unreachable)`);
+          console.error(
+            `[emit-pins] ${id}: SKIPPED (not verifiable — pending or unreachable)`,
+          );
         }
       } catch (err) {
         console.error(`[emit-pins] ${id}: ${err.message}`);
       }
     }
-    console.log(JSON.stringify({ generatedAt: now, base: BASE, books: pins }, null, 2));
+    console.log(
+      JSON.stringify({ generatedAt: now, base: BASE, books: pins }, null, 2),
+    );
     return;
   }
 
   const pins = loadPins();
   const pinsLoaded = pins.size > 0;
   if (!pinsLoaded) {
-    console.warn("[watchdog] no pins loaded — running in self-consistency mode. This catches a third-party tamperer and an anchor-lie, but NOT an operator who re-anchors a forgery. Commit a books.json pin set (see --emit-pins).");
+    console.warn(
+      "[watchdog] no pins loaded — running in self-consistency mode. This catches a third-party tamperer and an anchor-lie, but NOT an operator who re-anchors a forgery. Commit a books.json pin set (see --emit-pins).",
+    );
   }
 
-  const report = { checkedAt: now, base: BASE, anchorChecked: !!ots, pinned: pinsLoaded, books: [] };
+  const report = {
+    checkedAt: now,
+    base: BASE,
+    anchorChecked: !!ots,
+    pinned: pinsLoaded,
+    books: [],
+  };
   let tampered = false;
   let opError = false;
 
@@ -503,14 +632,20 @@ async function main() {
   if (pinsLoaded) {
     for (const id of pins.keys()) {
       if (!serverIds.includes(id)) {
-        console.error(`[watchdog] ${id}: MISSING — a pinned book is no longer listed by the site.`);
+        console.error(
+          `[watchdog] ${id}: MISSING — a pinned book is no longer listed by the site.`,
+        );
         report.books.push({ id, verdict: "MISSING", tampered: true });
         tampered = true;
       }
     }
   }
 
-  const roster = pinsLoaded ? Array.from(new Set([...serverIds, ...pins.keys()])).filter((id) => serverIds.includes(id)) : serverIds;
+  const roster = pinsLoaded
+    ? Array.from(new Set([...serverIds, ...pins.keys()])).filter((id) =>
+        serverIds.includes(id),
+      )
+    : serverIds;
   for (const id of roster) {
     try {
       const r = await verifyBook(ots, id, pins.get(id) ?? null, pinsLoaded);
@@ -528,14 +663,20 @@ async function main() {
   console.log("WATCHDOG_REPORT " + JSON.stringify(report));
 
   if (tampered) {
-    console.error("[watchdog] TAMPERING DETECTED — a published book's served text, manifest, or Bitcoin anchor does not match its pin.");
+    console.error(
+      "[watchdog] TAMPERING DETECTED — a published book's served text, manifest, or Bitcoin anchor does not match its pin.",
+    );
     process.exit(1);
   }
   if (opError) {
-    console.error("[watchdog] completed with operational errors (unreachable / pending / unpinned / incomplete) — no tampering confirmed.");
+    console.error(
+      "[watchdog] completed with operational errors (unreachable / pending / unpinned / incomplete) — no tampering confirmed.",
+    );
     process.exit(2);
   }
-  console.log("[watchdog] all pinned books verified: content matches the manifest, and the manifest's anchor is the pinned Bitcoin block.");
+  console.log(
+    "[watchdog] all pinned books verified: content matches the manifest, and the manifest's anchor is the pinned Bitcoin block.",
+  );
 }
 
 main().catch((err) => {
