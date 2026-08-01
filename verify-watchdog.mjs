@@ -52,6 +52,7 @@
  */
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
+import { pathToFileURL } from "node:url";
 
 // The OTS library prints progress ("Lite-client verification…") and transient
 // calendar errors straight to the console; silence just that noise so our
@@ -223,8 +224,26 @@ function classifyAnchorError(err) {
   if (/PendingAttestation/i.test(m)) return "pending";
   if (/UnknownAttestation/i.test(m)) return "operational";
   if (/File does not match original/i.test(m)) return "mismatch";
-  if (/does not match merkleroot/i.test(m)) return "mismatch";
+  if (/does not match (?:block )?merkle ?root/i.test(m)) return "mismatch";
   return "operational";
+}
+
+/**
+ * Prefer the exact height recorded by the immutable pin (or by the server's
+ * claim while capturing a new pin). A standard OTS proof may contain several
+ * independently valid Bitcoin attestations, and their serialized order is not
+ * a trust decision. Falling back to all branches lets us report the actual
+ * valid height when an expected height is absent without accepting that drift.
+ */
+export function selectBitcoinAttestations(detached, expectedHeight) {
+  const all = detached.timestamp
+    .allAttestations()
+    .filter(({ attestation }) => attestation.kind === "bitcoin");
+  if (expectedHeight == null || !Number.isFinite(expectedHeight)) return all;
+  const exact = all.filter(
+    ({ attestation }) => attestation.height === expectedHeight,
+  );
+  return exact.length > 0 ? exact : all;
 }
 
 /**
@@ -256,43 +275,65 @@ async function verifyAnchor(ots, book, claimed, manBytes, pin) {
 
   const originalHash = Buffer.from(sha256(manBytes), "hex");
 
+  let detached;
+  try {
+    detached = ots.DetachedTimestampFile.deserialize(Buffer.from(otsBytes));
+  } catch (err) {
+    result.note = "mismatch";
+    result.explorers.proof = {
+      error: `invalid OTS proof: ${err instanceof Error ? err.message : String(err)}`,
+      kind: "mismatch",
+    };
+    return result;
+  }
+  if (!Buffer.from(detached.fileDigest()).equals(originalHash)) {
+    result.note = "mismatch";
+    result.explorers.proof = {
+      error: "served manifest does not match the OTS file digest",
+      kind: "mismatch",
+    };
+    return result;
+  }
+
+  const claimedHeight = claimed == null ? null : Number(claimed.height);
+  const expectedHeight = pin?.blockHeight ?? claimedHeight;
+  const candidates = selectBitcoinAttestations(detached, expectedHeight);
+  if (candidates.length === 0) {
+    result.note = "pending";
+    return result;
+  }
+
   const successes = [];
   let mismatchVotes = 0;
   let pendingVotes = 0;
   let opVotes = 0;
   for (const explorer of EXPLORERS) {
     try {
-      const client = new ots.OpenTimestampsClient({
-        esploraUrl: explorer.url,
-        resilience: {
-          totalTimeoutMs: EXPLORER_TIMEOUT_MS,
-          connectTimeoutMs: EXPLORER_TIMEOUT_MS,
-        },
+      const network = new ots.ResilientNetworkLayer({
+        ...ots.DEFAULT_RESILIENCE,
+        totalTimeoutMs: EXPLORER_TIMEOUT_MS,
+        connectTimeoutMs: EXPLORER_TIMEOUT_MS,
       });
-      const v = await client.verify(Buffer.from(otsBytes), originalHash);
-      if (v.status === "verified") {
-        result.explorers[explorer.name] = {
-          height: v.blockHeight,
-          time: v.blockTime,
-        };
-        successes.push({
-          name: explorer.name,
-          height: v.blockHeight,
-          time: v.blockTime,
-        });
-      } else if (v.status === "invalid") {
-        result.explorers[explorer.name] = { error: v.reason, kind: "mismatch" };
-        mismatchVotes++;
-      } else if (v.status === "pending") {
-        result.explorers[explorer.name] = { error: v.reason, kind: "pending" };
-        pendingVotes++;
-      } else {
-        result.explorers[explorer.name] = {
-          error: v.reason,
-          kind: "operational",
-        };
-        opVotes++;
+      const esplora = new ots.EsploraClient(network, { url: explorer.url });
+      let verified = null;
+      let lastError = null;
+      for (const { msg, attestation } of candidates) {
+        try {
+          const time = await ots.verifyTimestampAttestation(
+            msg,
+            attestation,
+            esplora,
+          );
+          verified = { height: attestation.height, time };
+          break;
+        } catch (err) {
+          lastError = err;
+        }
       }
+      if (!verified)
+        throw lastError ?? new Error("no verifiable Bitcoin attestation");
+      result.explorers[explorer.name] = verified;
+      successes.push({ name: explorer.name, ...verified });
     } catch (err) {
       const kind = classifyAnchorError(err);
       result.explorers[explorer.name] = {
@@ -302,6 +343,20 @@ async function verifyAnchor(ots, book, claimed, manBytes, pin) {
       if (kind === "mismatch") mismatchVotes++;
       else if (kind === "pending") pendingVotes++;
       else opVotes++;
+    }
+  }
+
+  // If the expected branch was absent, successful verification of another
+  // branch remains evidence for a precise pin/claim mismatch below. It must
+  // never silently advance the ground truth.
+  if (
+    expectedHeight != null &&
+    Number.isFinite(expectedHeight) &&
+    !candidates.some(({ attestation }) => attestation.height === expectedHeight)
+  ) {
+    if (successes.length === 0) {
+      result.note = opVotes > 0 ? "operational" : "mismatch";
+      return result;
     }
   }
 
@@ -357,7 +412,6 @@ async function verifyAnchor(ots, book, claimed, manBytes, pin) {
 
     // UNPINNED: fall back to cross-checking the server's own claim. Coerce
     // numeric drift; a null/absent claim is incomplete, not a lie.
-    const claimedHeight = claimed == null ? null : Number(claimed.height);
     if (claimedHeight == null || Number.isNaN(claimedHeight)) {
       result.note = "operational";
       return result;
@@ -679,7 +733,12 @@ async function main() {
   );
 }
 
-main().catch((err) => {
-  console.error(`[watchdog] fatal: ${err.message}`);
-  process.exit(2);
-});
+if (
+  process.argv[1] &&
+  import.meta.url === pathToFileURL(process.argv[1]).href
+) {
+  main().catch((err) => {
+    console.error(`[watchdog] fatal: ${err.message}`);
+    process.exit(2);
+  });
+}

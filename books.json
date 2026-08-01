@@ -1,15 +1,15 @@
 {
-  "generatedAt": "2026-07-18T16:55:55.849Z",
+  "generatedAt": "2026-08-01T17:25:04.929Z",
   "base": "https://proofreadbtc.com",
   "books": [
     {
       "id": "incorruptible-standard",
-      "version": 1,
-      "rootHash": "b6a6d08d0fdbf0f26c22ae01b14c9f88712ce75986d630eba12a0e731327767d",
-      "manifestHash": "fcc50f0d009fe9332745ed9ace702420d592b7f26b98e079eb212267b81d07e0",
-      "blockHeight": 944239,
-      "blockHash": "00000000000000000000914f3395c1b52144a42583b8ba7259131b22eb15a596",
-      "blockTime": 1775681186,
+      "version": 2,
+      "rootHash": "ff7d60fdc8f35c9ee958b9d2bd4b4f9a654949bbcbc978e55f0ec21099f74d66",
+      "manifestHash": "1d10a0daa2acea4bf14fb6ef3ab311ff9ffe7de2f3b15fe87b932b88fefc7e0d",
+      "blockHeight": 959970,
+      "blockHash": "000000000000000000006f6b4d011f7475565c952a8a6aa99118b3b8b3c4bb0f",
+      "blockTime": 1785240373,
       "capturedAt": null
     },
     {
@@ -44,12 +44,12 @@
     },
     {
       "id": "a-nice-morning-drive",
-      "version": 1,
-      "rootHash": "4deb4733b40f0ee7aeb6ced31f8b570bf7b40b1b1d75e2f58de308e6c95039ec",
-      "manifestHash": "45da6caa54d397962a0caa5848606e843dca9c3e6067ce5e1a7073b98db31cf5",
-      "blockHeight": 957320,
-      "blockHash": "00000000000000000001f6d2d958dec3e5abbe6c0fa96ee34f53d1a5062ecd39",
-      "blockTime": 1783611136,
+      "version": 2,
+      "rootHash": "9a3e0872fcd13ed34a19c81d3162b37af78e207178dcfa7e9183fe592a81f744",
+      "manifestHash": "64e3b6d72bdcc610f0e06ea4a689801cad33c49611920d0abe6a82f6c5f84f99",
+      "blockHeight": 959970,
+      "blockHash": "000000000000000000006f6b4d011f7475565c952a8a6aa99118b3b8b3c4bb0f",
+      "blockTime": 1785240373,
       "capturedAt": null
     }
   ]
