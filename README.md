@@ -27,7 +27,7 @@ repo's public history. The watchdog trusts the pin, not the live server.
    to the pin.
 2. **Content integrity** (`node:crypto` only, no dependency) — recompute every
    file's SHA-256 and compare to the pin-bound manifest hash.
-3. **Anchor integrity** (OpenTimestamps + two independent explorers,
+3. **Anchor integrity** (`@otskit/client` + two independent explorers,
    [blockstream.info](https://blockstream.info) + [mempool.space](https://mempool.space)) —
    the manifest's `.ots` proof commits to a real Bitcoin block whose merkle root
    matches, at exactly `pin.blockHeight` / `pin.blockHash`.

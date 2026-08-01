@@ -9,6 +9,6 @@
     "verify": "node verify-watchdog.mjs"
   },
   "dependencies": {
-    "javascript-opentimestamps": "0.4.5"
+    "@otskit/client": "0.7.1"
   }
 }
